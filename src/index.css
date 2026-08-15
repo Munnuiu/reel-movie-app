@@ -1,0 +1,89 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Roboto+Slab:wght@400;600;700;900&display=swap");
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Inter", sans-serif;
+  --font-display: "Roboto Slab", serif;
+  --color-background: #07070a;
+  --color-foreground: #f5f1ea;
+  --color-primary: #f3c84b;
+  --color-secondary: #4db6ac;
+  --color-accent: #ef6f6c;
+  --color-muted: #a8a29e;
+  --radius: 2px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #07070a;
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(77, 182, 172, 0.12), transparent 28rem),
+    linear-gradient(180deg, #07070a 0%, #0c0c10 48%, #07070a 100%);
+  color: #f5f1ea;
+  font-family: "Inter", sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+img {
+  display: block;
+}
+
+::selection {
+  background: rgba(243, 200, 75, 0.35);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 241, 234, 0.25) transparent;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex h-11 items-center gap-2 bg-amber-300 px-5 text-sm font-extrabold text-black transition hover:bg-amber-200;
+  }
+
+  .btn-secondary {
+    @apply inline-flex h-11 items-center gap-2 border border-white/15 bg-white/10 px-5 text-sm font-bold text-stone-100 backdrop-blur transition hover:border-white/35 hover:bg-white/15;
+  }
+
+  .btn-ghost {
+    @apply inline-flex h-10 items-center gap-2 border border-white/10 px-3 text-sm font-semibold text-stone-300 transition hover:border-white/30 hover:text-white;
+  }
+
+  .input {
+    @apply h-11 w-full border border-white/10 bg-white/[0.045] px-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-600 focus:border-amber-300/70 focus:bg-white/[0.07];
+  }
+
+  .chip {
+    @apply h-9 shrink-0 border border-white/10 px-4 text-xs font-bold uppercase tracking-[0.12em] text-stone-400 transition hover:border-white/30 hover:text-stone-100;
+  }
+
+  .chip-active {
+    @apply border-amber-300 bg-amber-300 text-black hover:border-amber-300 hover:text-black;
+  }
+
+  .nav-link {
+    @apply border border-transparent px-3 py-2 text-xs font-extrabold uppercase tracking-[0.14em] text-stone-500 transition hover:text-stone-100;
+  }
+
+  .nav-link-active {
+    @apply border-white/10 bg-white/[0.06] text-stone-100;
+  }
+}

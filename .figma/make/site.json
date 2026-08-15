@@ -1,0 +1,10 @@
+{
+  "description": "Browse and discover movies with detailed info and ratings, helping film enthusiasts find their next favorite watch quickly and easily.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
