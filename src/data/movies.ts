@@ -1,22 +1,4 @@
-export type Movie = {
-  id: number
-  title: string
-  originalTitle: string
-  year: number
-  genres: string[]
-  rating: number
-  runtime: string
-  ageRating: string
-  director: string
-  cast: string[]
-  description: string
-  poster: string
-  backdrop: string
-  trailer: string
-  featured?: boolean
-  trending?: boolean
-  progress?: number
-}
+import type { Movie } from "../types"
 
 export const genres = [
   "Бүгд",
@@ -29,9 +11,9 @@ export const genres = [
   "Триллер",
 ] as const
 
-export const movies: Movie[] = [
+export const demoMovies: Movie[] = [
   {
-    id: 1,
+    id: "signal-void",
     title: "Хоосон дохио",
     originalTitle: "Signal Void",
     year: 2026,
@@ -51,9 +33,11 @@ export const movies: Movie[] = [
     featured: true,
     trending: true,
     progress: 62,
+    status: "published",
+    priceMnt: 0,
   },
   {
-    id: 2,
+    id: "red-meridian",
     title: "Улаан меридиан",
     originalTitle: "Red Meridian",
     year: 2025,
@@ -72,9 +56,11 @@ export const movies: Movie[] = [
     trailer: "02:12",
     featured: true,
     trending: true,
+    status: "published",
+    priceMnt: 5000,
   },
   {
-    id: 3,
+    id: "amber-shore",
     title: "Анбар эрэг",
     originalTitle: "Amber Shore",
     year: 2024,
@@ -92,9 +78,13 @@ export const movies: Movie[] = [
       "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=1600&h=900&fit=crop&auto=format",
     trailer: "01:36",
     progress: 34,
+    featured: false,
+    trending: false,
+    status: "published",
+    priceMnt: 0,
   },
   {
-    id: 4,
+    id: "bonewood",
     title: "Яс ой",
     originalTitle: "Bonewood",
     year: 2026,
@@ -111,83 +101,9 @@ export const movies: Movie[] = [
     backdrop:
       "https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&h=900&fit=crop&auto=format",
     trailer: "01:21",
+    featured: false,
     trending: true,
-  },
-  {
-    id: 5,
-    title: "Эргэлдэх протокол",
-    originalTitle: "Orbit Protocol",
-    year: 2025,
-    genres: ["Фантастик", "Экшн"],
-    rating: 7.6,
-    runtime: "2ц 18м",
-    ageRating: "13+",
-    director: "Дани Рейес",
-    cast: ["Маркус Холм", "Прия Найр", "Сэм Эйкерс"],
-    description:
-      "Квант хиймэл оюун хяналтаас гарахад түүнийг зогсоож чадах цорын ганц хүн бол өөрийн бүтээсэн системээсээ нуугдаж буй мэдээлэл задруулагч юм.",
-    poster:
-      "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=700&h=1050&fit=crop&auto=format",
-    backdrop:
-      "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&h=900&fit=crop&auto=format",
-    trailer: "02:05",
-    trending: true,
-  },
-  {
-    id: 6,
-    title: "Лейне дэх манан",
-    originalTitle: "Mist on Leine",
-    year: 2024,
-    genres: ["Драма", "Гэмт хэрэг"],
-    rating: 8.8,
-    runtime: "2ц 31м",
-    ageRating: "16+",
-    director: "Ана Луиза Пинто",
-    cast: ["Виктор Шольц", "Мара Ибаньес", "Отто Райнхардт"],
-    description:
-      "Ганновер дахь тэтгэвэрт гарсан мөрдөгч өөрийн шийдэгдээгүй өнгөрсөнтэй давхцсан хуучин хэргийн мөрөөр дахин орно.",
-    poster:
-      "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=700&h=1050&fit=crop&auto=format",
-    backdrop:
-      "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1600&h=900&fit=crop&auto=format",
-    trailer: "02:24",
-  },
-  {
-    id: 7,
-    title: "Нарны доорх хот",
-    originalTitle: "City Under Sun",
-    year: 2026,
-    genres: ["Драма"],
-    rating: 7.9,
-    runtime: "1ц 42м",
-    ageRating: "PG",
-    director: "Мила Саруул",
-    cast: ["Энхжин Бат", "Оюу Номин", "Темир Баяр"],
-    description:
-      "Их хотын зуны халуунд гурван танихгүй хүн нэг өдрийн турш амьдралаа өөрчлөх сонголттой нүүр тулна.",
-    poster:
-      "https://images.unsplash.com/photo-1493246507139-91e8fad9978e?w=700&h=1050&fit=crop&auto=format",
-    backdrop:
-      "https://images.unsplash.com/photo-1493246507139-91e8fad9978e?w=1600&h=900&fit=crop&auto=format",
-    trailer: "01:18",
-  },
-  {
-    id: 8,
-    title: "Сүүдрийн гэрээ",
-    originalTitle: "Shadow Pact",
-    year: 2025,
-    genres: ["Нууц", "Триллер"],
-    rating: 8.2,
-    runtime: "1ц 55м",
-    ageRating: "16+",
-    director: "Рахим Сато",
-    cast: ["Нора Ким", "Жеймс Ивар", "Ариун Заяа"],
-    description:
-      "Нэгэн хотын архивч нас барсан хүний гарын үсэгтэй гэрээ олсноор эрх мэдлийн далд сүлжээг илрүүлнэ.",
-    poster:
-      "https://images.unsplash.com/photo-1505686994434-e3cc5abf1330?w=700&h=1050&fit=crop&auto=format",
-    backdrop:
-      "https://images.unsplash.com/photo-1505686994434-e3cc5abf1330?w=1600&h=900&fit=crop&auto=format",
-    trailer: "01:57",
+    status: "published",
+    priceMnt: 7000,
   },
 ]

@@ -1,16 +1,41 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
-import { genres, movies, type Movie } from "./data/movies"
+import { genres } from "./data/movies"
+import { deleteMovie, listMovies, saveMovie } from "./services/catalog"
+import { isSupabaseConfigured, supabase } from "./services/supabase"
 import type { BeforeInstallPromptEvent } from "./pwa"
+import type { Movie, MovieInput, MovieStatus } from "./types"
 
 type AuthView = "login" | "register" | "forgot"
 type SortKey = "trending" | "rating" | "newest"
-type Page = "home" | "saved"
+type Page = "home" | "saved" | "admin"
+
+const adminCode = (import.meta.env.VITE_ADMIN_ACCESS_CODE as string | undefined) ?? "1234"
+
+const emptyMovie: MovieInput = {
+  title: "",
+  originalTitle: "",
+  year: new Date().getFullYear(),
+  genres: ["Драма"],
+  rating: 0,
+  runtime: "1ц 30м",
+  ageRating: "13+",
+  director: "",
+  cast: [],
+  description: "",
+  poster: "",
+  backdrop: "",
+  trailer: "00:00",
+  featured: false,
+  trending: false,
+  status: "draft",
+  priceMnt: 0,
+  playbackUrl: "",
+}
 
 function useLocalStorage<T>(key: string, initialValue: T) {
   const [value, setValue] = useState<T>(() => {
     const stored = window.localStorage.getItem(key)
     if (!stored) return initialValue
-
     try {
       return JSON.parse(stored) as T
     } catch {
@@ -41,6 +66,9 @@ function Icon({
     | "heart"
     | "download"
     | "refresh"
+    | "shield"
+    | "trash"
+    | "edit"
   className?: string
 }) {
   const common = {
@@ -63,6 +91,9 @@ function Icon({
   if (name === "arrow") return <svg {...common}><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
   if (name === "download") return <svg {...common}><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14" /></svg>
   if (name === "refresh") return <svg {...common}><path d="M20 12a8 8 0 1 1-2.34-5.66" /><path d="M20 4v6h-6" /></svg>
+  if (name === "shield") return <svg {...common}><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z" /></svg>
+  if (name === "trash") return <svg {...common}><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" /></svg>
+  if (name === "edit") return <svg {...common}><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" /></svg>
   if (name === "star") return <svg {...common}><polygon points="12 3 14.8 8.7 21 9.6 16.5 14 17.6 20.2 12 17.3 6.4 20.2 7.5 14 3 9.6 9.2 8.7 12 3" fill="currentColor" stroke="none" /></svg>
   return <svg {...common}><path d="M20.8 4.6a5.3 5.3 0 0 0-7.5 0L12 5.9l-1.3-1.3a5.3 5.3 0 0 0-7.5 7.5L12 21l8.8-8.9a5.3 5.3 0 0 0 0-7.5Z" /></svg>
 }
@@ -78,7 +109,9 @@ function Rating({ value }: { value: number }) {
 
 function AuthModal({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<AuthView>("login")
-  const [done, setDone] = useState(false)
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -89,13 +122,34 @@ function AuthModal({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", handleKey)
   }, [onClose])
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setLoading(true)
-    window.setTimeout(() => {
+    setMessage("")
+
+    try {
+      if (isSupabaseConfigured && supabase) {
+        if (view === "register") {
+          const { error } = await supabase.auth.signUp({ email, password })
+          if (error) throw error
+          setMessage("Бүртгэл үүслээ. Имэйл баталгаажуулалт хэрэгтэй байж магадгүй.")
+        } else if (view === "forgot") {
+          const { error } = await supabase.auth.resetPasswordForEmail(email)
+          if (error) throw error
+          setMessage("Нууц үг сэргээх имэйл илгээгдлээ.")
+        } else {
+          const { error } = await supabase.auth.signInWithPassword({ email, password })
+          if (error) throw error
+          setMessage("Амжилттай нэвтэрлээ.")
+        }
+      } else {
+        setMessage("Demo горим: Supabase env ороогүй тул login local preview байдлаар ажиллаж байна.")
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Алдаа гарлаа.")
+    } finally {
       setLoading(false)
-      setDone(true)
-    }, 700)
+    }
   }
 
   return (
@@ -105,121 +159,70 @@ function AuthModal({ onClose }: { onClose: () => void }) {
         <div className="p-6 sm:p-8">
           <div className="mb-7 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 border border-amber-300/50 bg-amber-300/10 grid place-items-center text-amber-300">
+              <div className="grid h-8 w-8 place-items-center border border-amber-300/50 bg-amber-300/10 text-amber-300">
                 <Icon name="play" className="h-3.5 w-3.5" />
               </div>
               <span className="font-display text-lg font-bold tracking-wide">REEL</span>
             </div>
-            <button
-              className="grid h-9 w-9 place-items-center border border-white/10 text-stone-400 transition hover:border-white/30 hover:text-stone-100"
-              onClick={onClose}
-              aria-label="Хаах"
-            >
+            <button className="grid h-9 w-9 place-items-center border border-white/10 text-stone-400" onClick={onClose}>
               <Icon name="x" />
             </button>
           </div>
 
-          {done ? (
-            <div className="py-8 text-center">
-              <div className="mx-auto mb-4 grid h-12 w-12 place-items-center border border-teal-300/60 text-teal-200">
-                <Icon name="check" />
-              </div>
-              <h2 className="font-display text-2xl font-bold">
-                {view === "forgot" ? "Имэйл илгээгдлээ" : "Амжилттай"}
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-stone-400">
-                {view === "forgot"
-                  ? "Нууц үг сэргээх холбоос demo байдлаар илгээгдсэн."
-                  : "Энэ preview дээр login demo байдлаар ажиллаж байна."}
-              </p>
-              <button className="mt-6 bg-amber-300 px-5 py-2.5 text-sm font-bold text-black" onClick={onClose}>
-                Дуусгах
-              </button>
+          {view !== "forgot" ? (
+            <div className="mb-6 grid grid-cols-2 border border-white/10 p-1">
+              {(["login", "register"] as const).map((item) => (
+                <button
+                  key={item}
+                  onClick={() => setView(item)}
+                  className={`py-2 text-sm font-semibold transition ${
+                    view === item ? "bg-amber-300 text-black" : "text-stone-400 hover:text-stone-100"
+                  }`}
+                >
+                  {item === "login" ? "Нэвтрэх" : "Бүртгүүлэх"}
+                </button>
+              ))}
             </div>
           ) : (
-            <>
-              {view !== "forgot" ? (
-                <div className="mb-6 grid grid-cols-2 border border-white/10 p-1">
-                  {(["login", "register"] as const).map((item) => (
-                    <button
-                      key={item}
-                      onClick={() => setView(item)}
-                      className={`py-2 text-sm font-semibold transition ${
-                        view === item ? "bg-amber-300 text-black" : "text-stone-400 hover:text-stone-100"
-                      }`}
-                    >
-                      {item === "login" ? "Нэвтрэх" : "Бүртгүүлэх"}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <button className="mb-5 flex items-center gap-2 text-sm text-amber-300" onClick={() => setView("login")}>
-                  <Icon name="arrow" className="h-4 w-4" />
-                  Буцах
-                </button>
-              )}
-
-              <form className="grid gap-4" onSubmit={handleSubmit}>
-                {view === "register" && (
-                  <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
-                    Нэр
-                    <input className="input" required placeholder="Таны нэр" />
-                  </label>
-                )}
-                <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
-                  Имэйл
-                  <input className="input" required type="email" placeholder="name@example.com" />
-                </label>
-                {view !== "forgot" && (
-                  <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
-                    Нууц үг
-                    <input className="input" required type="password" placeholder="••••••••" />
-                  </label>
-                )}
-                {view === "login" && (
-                  <button
-                    type="button"
-                    className="justify-self-start text-sm font-medium text-amber-300"
-                    onClick={() => setView("forgot")}
-                  >
-                    Нууц үг мартсан?
-                  </button>
-                )}
-                <button className="mt-2 bg-amber-300 px-5 py-3 text-sm font-bold text-black transition hover:bg-amber-200" disabled={loading}>
-                  {loading
-                    ? "Түр хүлээнэ үү..."
-                    : view === "login"
-                      ? "Нэвтрэх"
-                      : view === "register"
-                        ? "Бүртгүүлэх"
-                        : "Сэргээх холбоос илгээх"}
-                </button>
-              </form>
-            </>
+            <button className="mb-5 flex items-center gap-2 text-sm text-amber-300" onClick={() => setView("login")}>
+              <Icon name="arrow" />
+              Буцах
+            </button>
           )}
+
+          <form className="grid gap-4" onSubmit={handleSubmit}>
+            <label className="field-label">
+              Имэйл
+              <input className="input" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            </label>
+            {view !== "forgot" && (
+              <label className="field-label">
+                Нууц үг
+                <input className="input" required type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+              </label>
+            )}
+            {view === "login" && (
+              <button type="button" className="justify-self-start text-sm font-medium text-amber-300" onClick={() => setView("forgot")}>
+                Нууц үг мартсан?
+              </button>
+            )}
+            <button className="btn-primary justify-center" disabled={loading}>
+              {loading ? "Түр хүлээнэ үү..." : view === "login" ? "Нэвтрэх" : view === "register" ? "Бүртгүүлэх" : "Сэргээх"}
+            </button>
+            {message && <p className="border border-white/10 bg-white/[0.04] p-3 text-sm leading-6 text-stone-300">{message}</p>}
+          </form>
         </div>
       </div>
     </div>
   )
 }
 
-function Hero({
-  movie,
-  saved,
-  onOpen,
-  onToggleSaved,
-}: {
-  movie: Movie
-  saved: boolean
-  onOpen: () => void
-  onToggleSaved: () => void
-}) {
+function Hero({ movie, saved, onOpen, onToggleSaved }: { movie: Movie; saved: boolean; onOpen: () => void; onToggleSaved: () => void }) {
   return (
     <section className="relative min-h-[620px] overflow-hidden">
       <img src={movie.backdrop} alt={movie.title} className="absolute inset-0 h-full w-full object-cover" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,#07070a_0%,rgba(7,7,10,.92)_32%,rgba(7,7,10,.3)_72%,rgba(7,7,10,.86)_100%)]" />
       <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#07070a] to-transparent" />
-
       <div className="relative mx-auto flex min-h-[620px] max-w-7xl items-end px-5 pb-16 pt-28 sm:px-8 lg:px-10">
         <div className="max-w-2xl">
           <div className="mb-5 flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-stone-200">
@@ -227,6 +230,7 @@ function Hero({
             <span className="border border-white/20 px-2 py-1">{movie.ageRating}</span>
             <span className="border border-white/20 px-2 py-1">{movie.runtime}</span>
             <Rating value={movie.rating} />
+            {movie.priceMnt > 0 && <span className="border border-teal-300/50 px-2 py-1 text-teal-200">{movie.priceMnt.toLocaleString()}₮</span>}
           </div>
           <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-teal-200">{movie.originalTitle}</p>
           <h1 className="font-display text-5xl font-black leading-[0.95] text-stone-50 sm:text-7xl">{movie.title}</h1>
@@ -247,29 +251,15 @@ function Hero({
   )
 }
 
-function MovieCard({
-  movie,
-  saved,
-  onOpen,
-  onToggleSaved,
-}: {
-  movie: Movie
-  saved: boolean
-  onOpen: () => void
-  onToggleSaved: () => void
-}) {
+function MovieCard({ movie, saved, onOpen, onToggleSaved }: { movie: Movie; saved: boolean; onOpen: () => void; onToggleSaved: () => void }) {
   return (
     <article className="group overflow-hidden border border-white/10 bg-white/[0.035] transition hover:-translate-y-1 hover:border-amber-300/40">
       <button className="block w-full text-left" onClick={onOpen}>
         <div className="relative aspect-[2/3] overflow-hidden bg-stone-900">
           <img src={movie.poster} alt={movie.title} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-transparent opacity-80" />
-          <span className="absolute left-2 top-2 bg-black/70 px-2 py-1 text-xs font-bold text-stone-100 backdrop-blur">
-            {movie.ageRating}
-          </span>
-          <span className="absolute bottom-2 left-2 rounded-full bg-teal-300 px-2 py-1 text-xs font-bold text-black">
-            {movie.trailer}
-          </span>
+          <span className="absolute left-2 top-2 bg-black/70 px-2 py-1 text-xs font-bold text-stone-100 backdrop-blur">{movie.ageRating}</span>
+          <span className="absolute bottom-2 left-2 rounded-full bg-teal-300 px-2 py-1 text-xs font-bold text-black">{movie.priceMnt > 0 ? `${movie.priceMnt.toLocaleString()}₮` : "Үнэгүй"}</span>
         </div>
       </button>
       <div className="grid gap-2 p-3">
@@ -285,7 +275,7 @@ function MovieCard({
             onClick={onToggleSaved}
             aria-label={saved ? "Жагсаалтаас хасах" : "Жагсаалтад нэмэх"}
           >
-            <Icon name="heart" className="h-4 w-4" />
+            <Icon name="heart" />
           </button>
         </div>
         <Rating value={movie.rating} />
@@ -336,18 +326,33 @@ function DetailView({
             <span>{movie.year}</span>
             <span>{movie.runtime}</span>
             <span>{movie.ageRating}</span>
+            <span>{movie.priceMnt > 0 ? `${movie.priceMnt.toLocaleString()}₮` : "Үнэгүй"}</span>
           </div>
           <p className="mt-6 text-base leading-8 text-stone-300">{movie.description}</p>
+
           <div className="mt-7 flex flex-wrap gap-3">
-            <button className="btn-primary">
-              <Icon name="play" />
-              Trailer {movie.trailer}
-            </button>
+            {movie.playbackUrl ? (
+              <a className="btn-primary" href={movie.playbackUrl} target="_blank" rel="noreferrer">
+                <Icon name="play" />
+                Тоглуулах
+              </a>
+            ) : (
+              <button className="btn-primary">
+                <Icon name="play" />
+                Видео удахгүй
+              </button>
+            )}
             <button className="btn-secondary" onClick={onToggleSaved}>
               <Icon name={saved ? "check" : "plus"} />
               {saved ? "Жагсаалтад байна" : "Жагсаалтад нэмэх"}
             </button>
           </div>
+
+          {movie.priceMnt > 0 && (
+            <div className="mt-6 border border-amber-300/25 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
+              Төлбөртэй кино. Дараагийн шатанд Stripe Checkout залгаад төлбөр төлсөн хэрэглэгчид playback нээдэг болгоно.
+            </div>
+          )}
 
           <div className="mt-9 grid gap-5 border-t border-white/10 pt-7 sm:grid-cols-3">
             <Info label="Найруулагч" value={movie.director} />
@@ -381,9 +386,237 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-stone-500">{label}</p>
-      <p className="mt-2 text-sm leading-6 text-stone-200">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-stone-200">{value || "-"}</p>
     </div>
   )
+}
+
+function AdminDashboard({
+  movies,
+  onReload,
+}: {
+  movies: Movie[]
+  onReload: () => Promise<void>
+}) {
+  const [unlocked, setUnlocked] = useLocalStorage("reel.admin.unlocked", false)
+  const [code, setCode] = useState("")
+  const [editing, setEditing] = useState<MovieInput>(emptyMovie)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState("")
+
+  const submitCode = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (code === adminCode) {
+      setUnlocked(true)
+      setMessage("")
+    } else {
+      setMessage("Admin code буруу байна.")
+    }
+  }
+
+  const editMovie = (movie: Movie) => {
+    setEditing(movie)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  const submitMovie = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSaving(true)
+    setMessage("")
+    try {
+      await saveMovie(editing)
+      setEditing(emptyMovie)
+      await onReload()
+      setMessage("Кино хадгалагдлаа.")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Хадгалах үед алдаа гарлаа.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeMovie = async (movie: Movie) => {
+    if (!window.confirm(`${movie.title} киног устгах уу?`)) return
+    await deleteMovie(movie.id)
+    await onReload()
+  }
+
+  const setField = <K extends keyof MovieInput>(key: K, value: MovieInput[K]) => {
+    setEditing((current) => ({ ...current, [key]: value }))
+  }
+
+  if (!unlocked) {
+    return (
+      <main className="mx-auto min-h-screen max-w-lg px-5 py-28">
+        <div className="border border-white/10 bg-white/[0.035] p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center border border-amber-300/50 text-amber-300">
+              <Icon name="shield" />
+            </div>
+            <div>
+              <h1 className="font-display text-2xl font-black">Admin хэсэг</h1>
+              <p className="text-sm text-stone-400">Кино нэмэх, засах, publish хийх хэсэг.</p>
+            </div>
+          </div>
+          <form className="grid gap-4" onSubmit={submitCode}>
+            <label className="field-label">
+              Admin code
+              <input className="input" value={code} onChange={(event) => setCode(event.target.value)} placeholder="1234" />
+            </label>
+            <button className="btn-primary justify-center">Нэвтрэх</button>
+            {message && <p className="text-sm text-rose-200">{message}</p>}
+            <p className="text-xs leading-5 text-stone-500">
+              Энэ gate нь demo хамгаалалт. Supabase холбогдсоны дараа database RLS болон admin role үндсэн хамгаалалт болно.
+            </p>
+          </form>
+        </div>
+      </main>
+    )
+  }
+
+  return (
+    <main className="mx-auto min-h-screen max-w-7xl px-5 py-28 sm:px-8 lg:px-10">
+      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-200">REEL Studio</p>
+          <h1 className="mt-2 font-display text-4xl font-black">Кино удирдлага</h1>
+          <p className="mt-2 text-stone-400">
+            Data source: {isSupabaseConfigured ? "Supabase database" : "Local fallback"}
+          </p>
+        </div>
+        <button className="btn-ghost" onClick={() => setUnlocked(false)}>
+          <Icon name="x" />
+          Гарах
+        </button>
+      </div>
+
+      <section className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
+        <form className="grid gap-4 border border-white/10 bg-white/[0.035] p-5" onSubmit={submitMovie}>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-2xl font-bold">{editing.id ? "Кино засах" : "Кино нэмэх"}</h2>
+            {editing.id && (
+              <button type="button" className="btn-ghost" onClick={() => setEditing(emptyMovie)}>
+                Шинэ
+              </button>
+            )}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="field-label">
+              Гарчиг
+              <input className="input" required value={editing.title} onChange={(event) => setField("title", event.target.value)} />
+            </label>
+            <label className="field-label">
+              Original title
+              <input className="input" value={editing.originalTitle} onChange={(event) => setField("originalTitle", event.target.value)} />
+            </label>
+            <label className="field-label">
+              Он
+              <input className="input" type="number" value={editing.year} onChange={(event) => setField("year", Number(event.target.value))} />
+            </label>
+            <label className="field-label">
+              Үнэлгээ
+              <input className="input" type="number" min="0" max="10" step="0.1" value={editing.rating} onChange={(event) => setField("rating", Number(event.target.value))} />
+            </label>
+            <label className="field-label">
+              Үргэлжлэх хугацаа
+              <input className="input" value={editing.runtime} onChange={(event) => setField("runtime", event.target.value)} />
+            </label>
+            <label className="field-label">
+              Насны ангилал
+              <input className="input" value={editing.ageRating} onChange={(event) => setField("ageRating", event.target.value)} />
+            </label>
+            <label className="field-label">
+              Жанр
+              <input className="input" value={editing.genres.join(", ")} onChange={(event) => setField("genres", csv(event.target.value))} />
+            </label>
+            <label className="field-label">
+              Жүжигчид
+              <input className="input" value={editing.cast.join(", ")} onChange={(event) => setField("cast", csv(event.target.value))} />
+            </label>
+            <label className="field-label">
+              Найруулагч
+              <input className="input" value={editing.director} onChange={(event) => setField("director", event.target.value)} />
+            </label>
+            <label className="field-label">
+              Үнэ MNT
+              <input className="input" type="number" min="0" value={editing.priceMnt} onChange={(event) => setField("priceMnt", Number(event.target.value))} />
+            </label>
+          </div>
+
+          <label className="field-label">
+            Тайлбар
+            <textarea className="textarea" required rows={4} value={editing.description} onChange={(event) => setField("description", event.target.value)} />
+          </label>
+          <label className="field-label">
+            Poster URL
+            <input className="input" required value={editing.poster} onChange={(event) => setField("poster", event.target.value)} />
+          </label>
+          <label className="field-label">
+            Backdrop URL
+            <input className="input" required value={editing.backdrop} onChange={(event) => setField("backdrop", event.target.value)} />
+          </label>
+          <label className="field-label">
+            Playback URL
+            <input className="input" value={editing.playbackUrl ?? ""} onChange={(event) => setField("playbackUrl", event.target.value)} placeholder="Дараа нь Mux/Cloudflare playback URL орно" />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="field-label">
+              Status
+              <select className="input" value={editing.status} onChange={(event) => setField("status", event.target.value as MovieStatus)}>
+                <option value="draft">Draft</option>
+                <option value="published">Published</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 pt-6 text-sm text-stone-300">
+              <input type="checkbox" checked={editing.featured} onChange={(event) => setField("featured", event.target.checked)} />
+              Онцлох
+            </label>
+            <label className="flex items-center gap-2 pt-6 text-sm text-stone-300">
+              <input type="checkbox" checked={editing.trending} onChange={(event) => setField("trending", event.target.checked)} />
+              Trend
+            </label>
+          </div>
+
+          <button className="btn-primary justify-center" disabled={saving}>{saving ? "Хадгалж байна..." : "Хадгалах"}</button>
+          {message && <p className="border border-white/10 bg-white/[0.04] p-3 text-sm text-stone-300">{message}</p>}
+        </form>
+
+        <div className="border border-white/10 bg-white/[0.035] p-5">
+          <h2 className="font-display text-2xl font-bold">Кинонууд ({movies.length})</h2>
+          <div className="mt-4 grid gap-3">
+            {movies.map((movie) => (
+              <div key={movie.id} className="grid grid-cols-[72px_1fr] gap-3 border border-white/10 bg-black/20 p-2">
+                <img src={movie.poster} alt={movie.title} className="aspect-[2/3] w-full object-cover" />
+                <div className="min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="truncate font-display font-bold">{movie.title}</h3>
+                      <p className="mt-1 text-xs text-stone-500">{movie.status} · {movie.priceMnt > 0 ? `${movie.priceMnt.toLocaleString()}₮` : "free"}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <button className="grid h-8 w-8 place-items-center border border-white/10 text-stone-300" onClick={() => editMovie(movie)}>
+                        <Icon name="edit" />
+                      </button>
+                      <button className="grid h-8 w-8 place-items-center border border-white/10 text-rose-200" onClick={() => removeMovie(movie)}>
+                        <Icon name="trash" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-stone-400">{movie.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function csv(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean)
 }
 
 function PwaBanner({
@@ -400,19 +633,12 @@ function PwaBanner({
   onDismissInstall: () => void
 }) {
   if (!installPrompt && !updateReady) return null
-
   return (
     <div className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-xl border border-white/10 bg-[#101014]/95 p-3 text-stone-100 shadow-2xl shadow-black/60 backdrop-blur-xl sm:bottom-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-extrabold">
-            {updateReady ? "Шинэ хувилбар бэлэн байна" : "Android дээр app болгож суулгах"}
-          </p>
-          <p className="mt-1 text-xs leading-5 text-stone-400">
-            {updateReady
-              ? "Товч дарахад app шинэчлэгдээд дахин ачаална."
-              : "Home screen дээр app шиг нэмэгдэнэ."}
-          </p>
+          <p className="text-sm font-extrabold">{updateReady ? "Шинэ хувилбар бэлэн байна" : "Android дээр app болгож суулгах"}</p>
+          <p className="mt-1 text-xs leading-5 text-stone-400">{updateReady ? "Товч дарахад app шинэчлэгдээд дахин ачаална." : "Home screen дээр app шиг нэмэгдэнэ."}</p>
         </div>
         <div className="flex gap-2">
           {updateReady ? (
@@ -442,60 +668,68 @@ export default function App() {
   const [activeGenre, setActiveGenre] = useState<string>("Бүгд")
   const [sort, setSort] = useState<SortKey>("trending")
   const [query, setQuery] = useState("")
+  const [movies, setMovies] = useState<Movie[]>([])
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null)
   const [showAuth, setShowAuth] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState("")
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [updateRegistration, setUpdateRegistration] = useState<ServiceWorkerRegistration | null>(null)
-  const [savedIds, setSavedIds] = useLocalStorage<number[]>("reel.savedMovies", [1, 3])
-  const [ratings, setRatings] = useLocalStorage<Record<number, number>>("reel.userRatings", {})
+  const [savedIds, setSavedIds] = useLocalStorage<string[]>("reel.savedMovies", ["signal-void", "amber-shore"])
+  const [ratings, setRatings] = useLocalStorage<Record<string, number>>("reel.userRatings", {})
+
+  const loadCatalog = async () => {
+    setLoading(true)
+    setCatalogError("")
+    try {
+      setMovies(await listMovies(page === "admin"))
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : "Кино сан унших үед алдаа гарлаа.")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const handleInstallReady = (event: WindowEventMap["reel:install-ready"]) => {
-      setInstallPrompt(event.detail)
-    }
-    const handleUpdateReady = (event: WindowEventMap["reel:update-ready"]) => {
-      setUpdateRegistration(event.detail)
-    }
+    void loadCatalog()
+  }, [page])
 
+  useEffect(() => {
+    const handleInstallReady = (event: WindowEventMap["reel:install-ready"]) => setInstallPrompt(event.detail)
+    const handleUpdateReady = (event: WindowEventMap["reel:update-ready"]) => setUpdateRegistration(event.detail)
     window.addEventListener("reel:install-ready", handleInstallReady)
     window.addEventListener("reel:update-ready", handleUpdateReady)
-
     return () => {
       window.removeEventListener("reel:install-ready", handleInstallReady)
       window.removeEventListener("reel:update-ready", handleUpdateReady)
     }
   }, [])
 
-  const heroMovie = movies.find((movie) => movie.featured) ?? movies[0]
+  const heroMovie = movies.find((movie) => movie.featured && movie.status === "published") ?? movies[0]
   const savedMovies = movies.filter((movie) => savedIds.includes(movie.id))
   const continueWatching = movies.filter((movie) => movie.progress)
 
   const visibleMovies = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    const list = page === "saved" ? savedMovies : movies
-
+    const list = page === "saved" ? savedMovies : movies.filter((movie) => page === "admin" || movie.status === "published")
     return list
       .filter((movie) => activeGenre === "Бүгд" || movie.genres.includes(activeGenre))
       .filter((movie) => {
         if (!normalizedQuery) return true
-        return `${movie.title} ${movie.originalTitle} ${movie.director} ${movie.genres.join(" ")}`
-          .toLowerCase()
-          .includes(normalizedQuery)
+        return `${movie.title} ${movie.originalTitle} ${movie.director} ${movie.genres.join(" ")}`.toLowerCase().includes(normalizedQuery)
       })
       .sort((a, b) => {
         if (sort === "rating") return b.rating - a.rating
         if (sort === "newest") return b.year - a.year
         return Number(b.trending) - Number(a.trending) || b.rating - a.rating
       })
-  }, [activeGenre, page, query, savedMovies, sort])
+  }, [activeGenre, movies, page, query, savedMovies, sort])
 
-  const toggleSaved = (movieId: number) => {
-    setSavedIds((current) =>
-      current.includes(movieId) ? current.filter((id) => id !== movieId) : [...current, movieId],
-    )
+  const toggleSaved = (movieId: string) => {
+    setSavedIds((current) => (current.includes(movieId) ? current.filter((id) => id !== movieId) : [...current, movieId]))
   }
 
-  const rateMovie = (movieId: number, rating: number) => {
+  const rateMovie = (movieId: string, rating: number) => {
     setRatings((current) => ({ ...current, [movieId]: rating }))
   }
 
@@ -511,7 +745,6 @@ export default function App() {
       window.location.reload()
       return
     }
-
     worker.postMessage({ type: "SKIP_WAITING" })
   }
 
@@ -543,17 +776,14 @@ export default function App() {
         <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-10">
           <button className="flex items-center gap-2" onClick={() => setPage("home")}>
             <span className="grid h-9 w-9 place-items-center border border-amber-300/50 bg-amber-300/10 text-amber-300">
-              <Icon name="play" className="h-4 w-4" />
+              <Icon name="play" />
             </span>
             <span className="font-display text-xl font-black tracking-wide">REEL</span>
           </button>
           <div className="hidden items-center gap-2 md:flex">
-            <button className={`nav-link ${page === "home" ? "nav-link-active" : ""}`} onClick={() => setPage("home")}>
-              Нүүр
-            </button>
-            <button className={`nav-link ${page === "saved" ? "nav-link-active" : ""}`} onClick={() => setPage("saved")}>
-              Миний жагсаалт
-            </button>
+            <button className={`nav-link ${page === "home" ? "nav-link-active" : ""}`} onClick={() => setPage("home")}>Нүүр</button>
+            <button className={`nav-link ${page === "saved" ? "nav-link-active" : ""}`} onClick={() => setPage("saved")}>Миний жагсаалт</button>
+            <button className={`nav-link ${page === "admin" ? "nav-link-active" : ""}`} onClick={() => setPage("admin")}>Admin</button>
           </div>
           <button className="btn-ghost" onClick={() => setShowAuth(true)}>
             <Icon name="user" />
@@ -562,122 +792,98 @@ export default function App() {
         </nav>
       </header>
 
-      {page === "home" && heroMovie && (
-        <Hero
-          movie={heroMovie}
-          saved={savedIds.includes(heroMovie.id)}
-          onOpen={() => setSelectedMovie(heroMovie)}
-          onToggleSaved={() => toggleSaved(heroMovie.id)}
-        />
+      {page === "admin" ? (
+        <AdminDashboard movies={movies} onReload={loadCatalog} />
+      ) : (
+        <>
+          {page === "home" && heroMovie && <Hero movie={heroMovie} saved={savedIds.includes(heroMovie.id)} onOpen={() => setSelectedMovie(heroMovie)} onToggleSaved={() => toggleSaved(heroMovie.id)} />}
+          <main className={`mx-auto max-w-7xl px-5 pb-20 sm:px-8 lg:px-10 ${page === "saved" ? "pt-28" : ""}`}>
+            {catalogError && <div className="mt-24 border border-rose-300/30 bg-rose-300/10 p-4 text-sm text-rose-100">{catalogError}</div>}
+            {loading && <div className="pt-28 text-sm text-stone-400">Кино сан ачаалж байна...</div>}
+
+            {page === "saved" && (
+              <div className="mb-8">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-200">Хувийн сан</p>
+                <h1 className="mt-2 font-display text-4xl font-black sm:text-5xl">Миний жагсаалт</h1>
+                <p className="mt-3 max-w-xl text-stone-400">Таны хадгалсан кинонууд энэ төхөөрөмж дээр үлдэнэ. Database холбосны дараа account-д хадгалдаг болгоно.</p>
+              </div>
+            )}
+
+            {page === "home" && (
+              <section className="-mt-8 grid gap-3 md:grid-cols-3">
+                <Stat label="Нийт кино" value={`${movies.filter((movie) => movie.status === "published").length}`} tone="amber" />
+                <Stat label="Төлбөртэй" value={`${movies.filter((movie) => movie.priceMnt > 0).length}`} tone="rose" />
+                <Stat label="Хадгалсан" value={`${savedIds.length}`} tone="teal" />
+              </section>
+            )}
+
+            {page === "home" && continueWatching.length > 0 && (
+              <section className="mt-12">
+                <h2 className="mb-4 font-display text-2xl font-bold">Үргэлжлүүлэн үзэх</h2>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {continueWatching.map((movie) => (
+                    <button key={movie.id} className="grid grid-cols-[112px_1fr] overflow-hidden border border-white/10 bg-white/[0.035] text-left transition hover:border-teal-300/50" onClick={() => setSelectedMovie(movie)}>
+                      <img src={movie.backdrop} alt={movie.title} className="h-full min-h-28 w-full object-cover" />
+                      <div className="p-4">
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-200">{movie.genres[0]}</p>
+                        <h3 className="mt-1 font-display text-lg font-bold">{movie.title}</h3>
+                        <div className="mt-4 h-1.5 bg-white/10">
+                          <div className="h-full bg-teal-300" style={{ width: `${movie.progress ?? 0}%` }} />
+                        </div>
+                        <p className="mt-2 text-xs text-stone-500">{movie.progress}% үзсэн</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section className="mt-12">
+              <div className="mb-5 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-300">{page === "saved" ? "Хадгалсан кино" : "Каталог"}</p>
+                  <h2 className="mt-2 font-display text-3xl font-black">
+                    {page === "saved" ? "Сонгосон бүтээлүүд" : "Кино сан"}
+                    <span className="ml-2 text-lg font-medium text-stone-500">({visibleMovies.length})</span>
+                  </h2>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-[minmax(220px,320px)_160px]">
+                  <label className="relative">
+                    <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-500" />
+                    <input className="input pl-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Кино хайх" />
+                  </label>
+                  <select className="input" value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
+                    <option value="trending">Trend эхэнд</option>
+                    <option value="rating">Үнэлгээгээр</option>
+                    <option value="newest">Шинээр</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
+                {genres.map((genre) => (
+                  <button key={genre} className={`chip ${activeGenre === genre ? "chip-active" : ""}`} onClick={() => setActiveGenre(genre)}>
+                    {genre}
+                  </button>
+                ))}
+              </div>
+
+              {visibleMovies.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  {visibleMovies.map((movie) => (
+                    <MovieCard key={movie.id} movie={movie} saved={savedIds.includes(movie.id)} onOpen={() => setSelectedMovie(movie)} onToggleSaved={() => toggleSaved(movie.id)} />
+                  ))}
+                </div>
+              ) : (
+                <div className="border border-white/10 bg-white/[0.035] px-5 py-14 text-center">
+                  <h3 className="font-display text-2xl font-bold">Илэрц алга</h3>
+                  <p className="mt-2 text-stone-400">Хайлт эсвэл жанрын сонголтоо өөрчлөөд дахин үзээрэй.</p>
+                </div>
+              )}
+            </section>
+          </main>
+        </>
       )}
-
-      <main className={`mx-auto max-w-7xl px-5 pb-20 sm:px-8 lg:px-10 ${page === "saved" ? "pt-28" : ""}`}>
-        {page === "saved" && (
-          <div className="mb-8">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-200">Хувийн сан</p>
-            <h1 className="mt-2 font-display text-4xl font-black sm:text-5xl">Миний жагсаалт</h1>
-            <p className="mt-3 max-w-xl text-stone-400">
-              Таны хадгалсан кинонууд энэ browser дээр үлдэнэ. Энэ нь frontend demo-д тохирох хөнгөн хадгалалт юм.
-            </p>
-          </div>
-        )}
-
-        {page === "home" && (
-          <section className="-mt-8 grid gap-3 md:grid-cols-3">
-            <Stat label="Нийт кино" value={`${movies.length}`} tone="amber" />
-            <Stat label="Trend" value={`${movies.filter((movie) => movie.trending).length}`} tone="rose" />
-            <Stat label="Хадгалсан" value={`${savedIds.length}`} tone="teal" />
-          </section>
-        )}
-
-        {page === "home" && continueWatching.length > 0 && (
-          <section className="mt-12">
-            <div className="mb-4 flex items-end justify-between">
-              <h2 className="font-display text-2xl font-bold">Үргэлжлүүлэн үзэх</h2>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {continueWatching.map((movie) => (
-                <button
-                  key={movie.id}
-                  className="grid grid-cols-[112px_1fr] overflow-hidden border border-white/10 bg-white/[0.035] text-left transition hover:border-teal-300/50"
-                  onClick={() => setSelectedMovie(movie)}
-                >
-                  <img src={movie.backdrop} alt={movie.title} className="h-full min-h-28 w-full object-cover" />
-                  <div className="p-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-200">{movie.genres[0]}</p>
-                    <h3 className="mt-1 font-display text-lg font-bold">{movie.title}</h3>
-                    <div className="mt-4 h-1.5 bg-white/10">
-                      <div className="h-full bg-teal-300" style={{ width: `${movie.progress ?? 0}%` }} />
-                    </div>
-                    <p className="mt-2 text-xs text-stone-500">{movie.progress}% үзсэн</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <section className="mt-12">
-          <div className="mb-5 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-300">
-                {page === "saved" ? "Хадгалсан кино" : "Каталог"}
-              </p>
-              <h2 className="mt-2 font-display text-3xl font-black">
-                {page === "saved" ? "Сонгосон бүтээлүүд" : "Кино сан"}
-                <span className="ml-2 text-lg font-medium text-stone-500">({visibleMovies.length})</span>
-              </h2>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[minmax(220px,320px)_160px]">
-              <label className="relative">
-                <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-500" />
-                <input
-                  className="input pl-10"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Кино хайх"
-                />
-              </label>
-              <select className="input" value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
-                <option value="trending">Trend эхэнд</option>
-                <option value="rating">Үнэлгээгээр</option>
-                <option value="newest">Шинээр</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
-            {genres.map((genre) => (
-              <button
-                key={genre}
-                className={`chip ${activeGenre === genre ? "chip-active" : ""}`}
-                onClick={() => setActiveGenre(genre)}
-              >
-                {genre}
-              </button>
-            ))}
-          </div>
-
-          {visibleMovies.length > 0 ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {visibleMovies.map((movie) => (
-                <MovieCard
-                  key={movie.id}
-                  movie={movie}
-                  saved={savedIds.includes(movie.id)}
-                  onOpen={() => setSelectedMovie(movie)}
-                  onToggleSaved={() => toggleSaved(movie.id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="border border-white/10 bg-white/[0.035] px-5 py-14 text-center">
-              <h3 className="font-display text-2xl font-bold">Илэрц алга</h3>
-              <p className="mt-2 text-stone-400">Хайлт эсвэл жанрын сонголтоо өөрчлөөд дахин үзээрэй.</p>
-            </div>
-          )}
-        </section>
-      </main>
     </div>
   )
 }
