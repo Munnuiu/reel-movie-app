@@ -26,3 +26,10 @@ export type Movie = {
 export type MovieInput = Omit<Movie, "id"> & {
   id?: string
 }
+
+export type Profile = {
+  id: string
+  email: string | null
+  fullName: string | null
+  role: "viewer" | "admin"
+}

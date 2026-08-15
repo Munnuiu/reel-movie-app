@@ -32,3 +32,5 @@ Admin panel:
 - The fallback admin code comes from `VITE_ADMIN_ACCESS_CODE`; if it is not set, local development uses `1234`.
 
 Production note: the fallback admin code is only a UI gate. Real production protection comes from Supabase Auth, the `profiles.role = 'admin'` value, and the RLS policies in `supabase/schema.sql`.
+
+Detailed Supabase setup lives in `supabase/README.md`.

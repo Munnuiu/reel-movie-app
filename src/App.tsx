@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { genres } from "./data/movies"
+import { getProfile, signOut } from "./services/auth"
 import { deleteMovie, listMovies, saveMovie } from "./services/catalog"
 import { isSupabaseConfigured, supabase } from "./services/supabase"
 import type { BeforeInstallPromptEvent } from "./pwa"
-import type { Movie, MovieInput, MovieStatus } from "./types"
+import type { Session } from "@supabase/supabase-js"
+import type { Movie, MovieInput, MovieStatus, Profile } from "./types"
 
 type AuthView = "login" | "register" | "forgot"
 type SortKey = "trending" | "rating" | "newest"
@@ -394,9 +396,15 @@ function Info({ label, value }: { label: string; value: string }) {
 function AdminDashboard({
   movies,
   onReload,
+  isAdmin,
+  userEmail,
+  onRequireLogin,
 }: {
   movies: Movie[]
   onReload: () => Promise<void>
+  isAdmin: boolean
+  userEmail?: string
+  onRequireLogin: () => void
 }) {
   const [unlocked, setUnlocked] = useLocalStorage("reel.admin.unlocked", false)
   const [code, setCode] = useState("")
@@ -445,7 +453,34 @@ function AdminDashboard({
     setEditing((current) => ({ ...current, [key]: value }))
   }
 
-  if (!unlocked) {
+  if (isSupabaseConfigured && !isAdmin) {
+    return (
+      <main className="mx-auto min-h-screen max-w-lg px-5 py-28">
+        <div className="border border-white/10 bg-white/[0.035] p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center border border-amber-300/50 text-amber-300">
+              <Icon name="shield" />
+            </div>
+            <div>
+              <h1 className="font-display text-2xl font-black">Admin эрх хэрэгтэй</h1>
+              <p className="text-sm text-stone-400">
+                {userEmail ? `${userEmail} account viewer эрхтэй байна.` : "Admin account-аар нэвтрэх шаардлагатай."}
+              </p>
+            </div>
+          </div>
+          <button className="btn-primary justify-center" onClick={onRequireLogin}>
+            <Icon name="user" />
+            Нэвтрэх
+          </button>
+          <p className="mt-4 text-xs leading-5 text-stone-500">
+            Supabase дээр тухайн хэрэглэгчийн `profiles.role` утгыг `admin` болгосны дараа энэ хэсэг нээгдэнэ.
+          </p>
+        </div>
+      </main>
+    )
+  }
+
+  if (!isSupabaseConfigured && !unlocked) {
     return (
       <main className="mx-auto min-h-screen max-w-lg px-5 py-28">
         <div className="border border-white/10 bg-white/[0.035] p-6">
@@ -673,6 +708,9 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false)
   const [loading, setLoading] = useState(true)
   const [catalogError, setCatalogError] = useState("")
+  const [session, setSession] = useState<Session | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [updateRegistration, setUpdateRegistration] = useState<ServiceWorkerRegistration | null>(null)
   const [savedIds, setSavedIds] = useLocalStorage<string[]>("reel.savedMovies", ["signal-void", "amber-shore"])
@@ -693,6 +731,40 @@ export default function App() {
   useEffect(() => {
     void loadCatalog()
   }, [page])
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return
+
+    let active = true
+
+    const syncProfile = async (nextSession: Session | null) => {
+      setSession(nextSession)
+      if (!nextSession?.user) {
+        setProfile(null)
+        setAuthLoading(false)
+        return
+      }
+
+      try {
+        const nextProfile = await getProfile(nextSession.user.id)
+        if (active) setProfile(nextProfile)
+      } catch {
+        if (active) setProfile(null)
+      } finally {
+        if (active) setAuthLoading(false)
+      }
+    }
+
+    supabase.auth.getSession().then(({ data }) => syncProfile(data.session))
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      void syncProfile(nextSession)
+    })
+
+    return () => {
+      active = false
+      data.subscription.unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     const handleInstallReady = (event: WindowEventMap["reel:install-ready"]) => setInstallPrompt(event.detail)
@@ -748,6 +820,12 @@ export default function App() {
     worker.postMessage({ type: "SKIP_WAITING" })
   }
 
+  const logout = async () => {
+    await signOut()
+    setSession(null)
+    setProfile(null)
+  }
+
   if (selectedMovie) {
     return (
       <DetailView
@@ -785,15 +863,28 @@ export default function App() {
             <button className={`nav-link ${page === "saved" ? "nav-link-active" : ""}`} onClick={() => setPage("saved")}>Миний жагсаалт</button>
             <button className={`nav-link ${page === "admin" ? "nav-link-active" : ""}`} onClick={() => setPage("admin")}>Admin</button>
           </div>
-          <button className="btn-ghost" onClick={() => setShowAuth(true)}>
-            <Icon name="user" />
-            Нэвтрэх
-          </button>
+          {session ? (
+            <button className="btn-ghost" onClick={logout}>
+              <Icon name="user" />
+              {profile?.role === "admin" ? "Admin" : "Гарах"}
+            </button>
+          ) : (
+            <button className="btn-ghost" onClick={() => setShowAuth(true)}>
+              <Icon name="user" />
+              {authLoading ? "Шалгаж байна" : "Нэвтрэх"}
+            </button>
+          )}
         </nav>
       </header>
 
       {page === "admin" ? (
-        <AdminDashboard movies={movies} onReload={loadCatalog} />
+        <AdminDashboard
+          movies={movies}
+          onReload={loadCatalog}
+          isAdmin={!isSupabaseConfigured || profile?.role === "admin"}
+          userEmail={session?.user.email ?? profile?.email ?? undefined}
+          onRequireLogin={() => setShowAuth(true)}
+        />
       ) : (
         <>
           {page === "home" && heroMovie && <Hero movie={heroMovie} saved={savedIds.includes(heroMovie.id)} onOpen={() => setSelectedMovie(heroMovie)} onToggleSaved={() => toggleSaved(heroMovie.id)} />}
