@@ -27,6 +27,16 @@ export function registerPwa() {
 
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").then((registration) => {
+      const checkForUpdate = () => {
+        void registration.update()
+      }
+
+      window.addEventListener("online", checkForUpdate)
+      window.addEventListener("focus", checkForUpdate)
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") checkForUpdate()
+      })
+
       registration.addEventListener("updatefound", () => {
         const worker = registration.installing
         if (!worker) return

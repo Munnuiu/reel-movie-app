@@ -51,7 +51,7 @@ function reelServiceWorkerPlugin(): Plugin {
       const cacheVersion = `reel-${Date.now()}`
       const source = `
 const CACHE_VERSION = ${JSON.stringify(cacheVersion)}
-const APP_SHELL = ["/", "/manifest.webmanifest"]
+const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/reel-icon.svg"]
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)))
@@ -84,7 +84,7 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_VERSION).then((cache) => cache.put("/", copy))
           return response
         })
-        .catch(() => caches.match("/")),
+        .catch(() => caches.match("/").then((response) => response || caches.match("/index.html"))),
     )
     return
   }
